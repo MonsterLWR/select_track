@@ -17,7 +17,7 @@ def correlation_filter(f, G):
     F = np.fft.fft2(f)
     A = G * np.conjugate(F)
     B = F * np.conjugate(F)
-    return A / B
+    return A, B
 
 
 def pre_process(img):

@@ -1,6 +1,14 @@
 import numpy as np
 import tkinter
-import threading
+
+
+def compute_centroids(boxes):
+    centroids = np.zeros((len(boxes), 2), dtype="int")
+    for (i, (startX, startY, endX, endY)) in enumerate(boxes):
+        cX = int((startX + endX) / 2.0)
+        cY = int((startY + endY) / 2.0)
+        centroids[i] = (cX, cY)
+    return centroids
 
 
 def convert_to_wh_box(box):
@@ -60,6 +68,18 @@ def clip_box(box, height, width):
     endY = np.clip(endY, 0, height)
     startX = np.clip(startX, 0, width)
     endX = np.clip(endX, 0, width)
+
+    if endX - startX == 0:
+        if startX > 0:
+            startX -= 1
+        else:
+            endX += 1
+    if endY - startY == 0:
+        if startY > 0:
+            startY -= 1
+        else:
+            endY += 1
+
     return startX, startY, endX, endY
 
 
