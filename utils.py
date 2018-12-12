@@ -11,6 +11,13 @@ def compute_centroids(boxes):
     return centroids
 
 
+def compute_area(box):
+    startX, startY, endX, endY = box
+    height = endY - startY
+    width = endX - startX
+    return height * width
+
+
 def convert_to_wh_box(box):
     (startX, startY, endX, endY) = box
     w = endX - startX

@@ -15,7 +15,7 @@ class SelectedTracker:
         self.detection_model = detection_model
 
     def track(self, input_vedio=None, output_vedio=None, frame_width=500, skip_frames=20, confidence=0.3,
-              verbose=False, use_CF=True, debug=False):
+              verbose=False, use_CF=True):
         if input_vedio is None:
             print("[INFO] starting video stream...")
             vs = VideoStream(src=0).start()
@@ -34,7 +34,7 @@ class SelectedTracker:
         # 初始要追踪的目标ID
         selected_IDs = []
 
-        tm = SelectedTrackerManager(use_CF=use_CF, debug=debug)
+        tm = SelectedTrackerManager(use_CF=use_CF, debug=verbose)
         # trackableObjects = {}
 
         # initialize the total number of frames processed thus far
@@ -146,13 +146,19 @@ class SelectedTracker:
 
             # show the output frame
             cv2.imshow("Frame", frame)
-            key = cv2.waitKey(1) & 0xFF
+            if not tracking:
+                key = cv2.waitKey(20) & 0xFF
+            else:
+                key = cv2.waitKey(1) & 0xFF
 
             # if the `q` key was pressed, break from the loop
             if key == ord("q"):
                 break
             elif key == ord("s"):
                 tracking = True
+
+            # if not tracking:
+            #     cv2.waitKey(10)
 
         # stop the timer and display FPS information
         if fps is not None:
@@ -177,10 +183,11 @@ class SelectedTracker:
 
 
 if __name__ == '__main__':
+    size = 512
     with tf.Session() as sess:
         yolo = YOLO_model(sess, '../YOLO_v2/yolo2_model/yolo2_coco.ckpt', '../YOLO_v2/yolo2_data/coco_classes.txt',
-                          input_size=(512, 512))
+                          input_size=(size, size))
         selected_tracker = SelectedTracker(yolo)
         # print(yolo.detect(cv2.imread('../YOLO_v2/yolo2_data/timg.jpg')))
-        selected_tracker.track('./videos/girl.mp4', './output/girl.mp4', skip_frames=20, verbose=False, use_CF=True,
-                               debug=False)
+        selected_tracker.track('./videos/girl.mp4', './output/girl.mp4', skip_frames=20, verbose=True,
+                               use_CF=True,  frame_width=size)

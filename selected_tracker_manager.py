@@ -11,6 +11,7 @@ class SelectedTrackerManager:
         self.nextTrackerID = 0
         self.trackers = {}
         self.boxes = {}
+        self.counts = {}
         # 检测算法未检测到目标的次数
         self.disappear = {}
         # 目标是否被追踪到
@@ -19,15 +20,21 @@ class SelectedTrackerManager:
         self.use_CF = use_CF
         self.template_denominator = {}
         self.template_numerator = {}
-        self.last_frame = None
+        # self.last_frame = None
         self.filter_size = kwargs.setdefault('filter_size', (128, 128))
         self.fft_gauss_response = np.fft.fft2(gauss_response(self.filter_size[0], self.filter_size[1]))
         # cv2.imshow('g', gauss_response(self.filter_size[0], self.filter_size[1]))
 
-        self.maxDistance = kwargs.setdefault('maxDistance', 100)
+        self.maxDistance = kwargs.setdefault('maxDistance', 150)
         self.maxDisappear = kwargs.setdefault('maxDisappear', 5)
-        self.areaThreshold = kwargs.setdefault('areaThreshold', 0)
-        self.psrThreshold = kwargs.setdefault('psrThreshold', 12.0)
+        self.areaThreshold = kwargs.setdefault('areaThreshold', 100)
+        self.psrThreshold = kwargs.setdefault('psrThreshold', 8.0)
+        self.updatePsr = kwargs.setdefault('updatePsr', 16.0)
+        self.areaChangeRatio = kwargs.setdefault('areaChangeRatio', 0.5)
+
+        # 每次追踪的目标匹配为检测到的目标时，由于框的大小不同，可能导致psr也比较小。
+        # 该值用于每次追踪的目标匹配为检测到的目标时，可以无视psr的值，更新滤波器的次数。
+        self.safeUpdateCount = kwargs.setdefault('safeUpdateCount', 3)
 
         self.tracker_type = tracker_type
 
@@ -55,6 +62,7 @@ class SelectedTrackerManager:
         self.tracked[self.nextTrackerID] = True
         self.disappear[self.nextTrackerID] = 0
         self.boxes[self.nextTrackerID] = box
+        self.counts[self.nextTrackerID] = self.safeUpdateCount
         self.nextTrackerID += 1
 
     def __renew_tracker(self, trackerID, frame, box):
@@ -66,6 +74,7 @@ class SelectedTrackerManager:
         self.tracked[trackerID] = True
         self.disappear[trackerID] = 0
         self.boxes[trackerID] = box
+        self.counts[trackerID] = self.safeUpdateCount
 
     def __deregister(self, trackerID):
         # to deregister an object ID we delete the object ID from
@@ -74,6 +83,7 @@ class SelectedTrackerManager:
         del self.boxes[trackerID]
         del self.disappear[trackerID]
         del self.tracked[trackerID]
+        del self.counts[trackerID]
 
         if self.use_CF:
             del self.template_denominator[trackerID]
@@ -86,7 +96,7 @@ class SelectedTrackerManager:
         if len(self.trackers.keys()) == 0:
             for box in boxes:
                 self.__register(frame, box)
-            self.last_frame = frame.copy()
+            # self.last_frame = frame.copy()
 
         if self.use_CF:
             self.__set_templates(cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY))
@@ -103,7 +113,7 @@ class SelectedTrackerManager:
                 if self.disappear[ID] >= self.maxDisappear:
                     # 超出设定的消失次数，销毁tracker
                     self.__deregister(ID)
-            self.last_frame = frame.copy()
+            # self.last_frame = frame.copy()
             return self.__appearing_boxes()
 
         if self.use_CF:
@@ -113,17 +123,8 @@ class SelectedTrackerManager:
 
         # cv2.waitKey()
 
-        self.last_frame = frame.copy()
+        # self.last_frame = frame.copy()
         return self.__appearing_boxes()
-
-    # @staticmethod
-    # def __show_table(table, existing_IDs):
-    #     h, w = table.shape
-    #     for i in range(h):
-    #         print('id:{:2}'.format(existing_IDs[i]), end=' ')
-    #         for j in range(w):
-    #             print('{:25}'.format(table[i][j]), end=' ')
-    #         print()
 
     def discard_unselected_IDs(self, selected_IDs):
         for ID in list(self.trackers.keys()):
@@ -188,8 +189,11 @@ class SelectedTrackerManager:
         psr_with_penalty = np.zeros_like(D)
         for row in rows:
             ID = existing_IDs[row]
+            area1 = compute_area(self.boxes[ID])
             for col in cols:
-                if D[row][col] < self.maxDistance:
+                area2 = compute_area(boxes[col])
+                if D[row][col] < self.maxDistance and (1 + self.areaChangeRatio) * area2 > area1 > (
+                        1 - self.areaChangeRatio) * area2:
                     # 未超出设定的最大距离，计算psr
                     # 得到追踪目标的相关滤波器H
                     H = self.template_numerator[ID] / self.template_denominator[ID]
@@ -230,12 +234,6 @@ class SelectedTrackerManager:
                                                           input_centroids[col]))
                         cv2.waitKey()
 
-        # print(psr_table)
-        # cv2.waitKey()
-        # penalty = (1 - D / self.maxDistance)
-        # print(D)
-        # final_table = D + psr_table
-
         # 根据每一行上的最大值对行索引进行排序
         rows = np.flip(psr_with_penalty.max(axis=1).argsort())
         # 得到每一行上最大值对应的列索引，并依据rows重新排序
@@ -247,7 +245,7 @@ class SelectedTrackerManager:
         for (row, col) in zip(rows, cols):
             if row in usedRows or col in usedCols:
                 continue
-            if psr_table[row, col] == 0 or psr_table[row, col] < self.psrThreshold:
+            if psr_table[row, col] == 0 or psr_with_penalty[row, col] < self.psrThreshold:
                 continue
 
             ID = existing_IDs[row]
@@ -270,6 +268,7 @@ class SelectedTrackerManager:
         # self.__set_templates(gray_frame)
 
     def update_trackers(self, frame):
+        """使用tracker追踪目标"""
         gray_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         for (ID, tracker) in self.trackers.items():
             (success, box) = tracker.update(frame)
@@ -278,10 +277,33 @@ class SelectedTrackerManager:
                 self.boxes[ID] = clip_box(convert_from_wh_box(box), frame.shape[0], frame.shape[1])
                 self.tracked[ID] = True
 
-                self.__update_template(ID, gray_frame)
+                if self.use_CF:
+                    if self.counts[ID] == 0:
+                        # 旧的滤波器
+                        H = self.template_numerator[ID] / self.template_denominator[ID]
+                        # 追踪目标在frame中的位置
+                        startX, startY, endX, endY = self.boxes[ID]
+                        f = gray_frame[startY:endY, startX:endX]
+                        f = cv2.resize(f, self.filter_size)
+                        psr = correlation(f, H)
+
+                        # 目标没有被遮挡才更新滤波器
+                        if psr > self.updatePsr:
+                            self.__update_template(ID, gray_frame)
+
+                        if self.debug:
+                            print('psr:{}'.format(psr))
+                    else:
+                        # 由于刚匹配到当前目标，无视psr，更新滤波器
+                        self.__update_template(ID, gray_frame)
+                        self.counts[ID] -= 1
+
+                        if self.debug:
+                            print('skip psr')
             else:
+                # 追踪失败
                 self.tracked[ID] = False
-        self.last_frame = frame.copy()
+        # self.last_frame = frame.copy()
         return self.__appearing_boxes()
 
     def __appearing_boxes(self):
@@ -311,7 +333,8 @@ class SelectedTrackerManager:
     def __set_templates(self, gray_frame):
         # 对要追踪的id
         for ID in self.tracked.keys():
-            # 重新构建相关滤波模板
+            # 对于追踪到的目标构建相关滤波模板
+            # 没有追踪到的目标还需要依靠现有的滤波器来寻找目标
             if self.tracked[ID]:
                 startX, startY, endX, endY = self.boxes[ID]
                 hi = gray_frame[startY:endY, startX:endX]
