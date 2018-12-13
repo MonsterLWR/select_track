@@ -28,13 +28,16 @@ class SelectedTrackerManager:
         self.maxDistance = kwargs.setdefault('maxDistance', 150)
         self.maxDisappear = kwargs.setdefault('maxDisappear', 5)
         self.areaThreshold = kwargs.setdefault('areaThreshold', 100)
+        # psr为8可能是追踪目标，也可能不是追踪目标。结合距离来判断是否为追踪目标。
         self.psrThreshold = kwargs.setdefault('psrThreshold', 8.0)
-        self.updatePsr = kwargs.setdefault('updatePsr', 16.0)
+        # 用于判断追踪的是否是同一目标
+        self.updatePsr = kwargs.setdefault('updatePsr', 13.0)
         self.areaChangeRatio = kwargs.setdefault('areaChangeRatio', 0.5)
+        self.distancePenalty = self.updatePsr - self.psrThreshold
 
         # 每次追踪的目标匹配为检测到的目标时，由于框的大小不同，可能导致psr也比较小。
         # 该值用于每次追踪的目标匹配为检测到的目标时，可以无视psr的值，更新滤波器的次数。
-        self.safeUpdateCount = kwargs.setdefault('safeUpdateCount', 3)
+        self.safeUpdateCount = kwargs.setdefault('safeUpdateCount', 0)
 
         self.tracker_type = tracker_type
 
@@ -222,7 +225,7 @@ class SelectedTrackerManager:
                     psr_table[row][col] = psr
 
                     # 加入距离的惩罚项
-                    penalty = D[row][col] / self.maxDistance * 5
+                    penalty = D[row][col] / self.maxDistance * self.distancePenalty
                     psr_with_penalty[row][col] = psr - penalty
 
                     if self.debug:

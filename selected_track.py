@@ -183,11 +183,11 @@ class SelectedTracker:
 
 
 if __name__ == '__main__':
-    size = 512
+    size = 1024
     with tf.Session() as sess:
         yolo = YOLO_model(sess, '../YOLO_v2/yolo2_model/yolo2_coco.ckpt', '../YOLO_v2/yolo2_data/coco_classes.txt',
                           input_size=(size, size))
         selected_tracker = SelectedTracker(yolo)
         # print(yolo.detect(cv2.imread('../YOLO_v2/yolo2_data/timg.jpg')))
-        selected_tracker.track('./videos/girl.mp4', './output/girl.mp4', skip_frames=20, verbose=True,
+        selected_tracker.track('./videos/2.mp4', './output/2.mp4', skip_frames=20, verbose=True,
                                use_CF=True,  frame_width=size)
