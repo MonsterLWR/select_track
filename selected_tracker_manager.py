@@ -32,7 +32,8 @@ class SelectedTrackerManager:
         self.psrThreshold = kwargs.setdefault('psrThreshold', 8.0)
         # 用于判断追踪的是否是同一目标
         self.updatePsr = kwargs.setdefault('updatePsr', 13.0)
-        self.areaChangeRatio = kwargs.setdefault('areaChangeRatio', 0.5)
+        self.areaChangeRatio_max = kwargs.setdefault('areaChangeRatio_max', 3.0)
+        self.areaChangeRatio_min = kwargs.setdefault('areaChangeRatio_min', 0.5)
         self.distancePenalty = self.updatePsr - self.psrThreshold
 
         # 每次追踪的目标匹配为检测到的目标时，由于框的大小不同，可能导致psr也比较小。
@@ -60,6 +61,7 @@ class SelectedTrackerManager:
         """通过frame,box,新建并初始化一个tracker"""
         tracker = self.new_tracker()
         tracker.init(frame, convert_to_wh_box(box))
+        # tracker.init(frame, box)
         self.trackers[self.nextTrackerID] = tracker
 
         self.tracked[self.nextTrackerID] = True
@@ -193,10 +195,11 @@ class SelectedTrackerManager:
         for row in rows:
             ID = existing_IDs[row]
             area1 = compute_area(self.boxes[ID])
+            max_area = self.areaChangeRatio_max * area1
+            min_area = self.areaChangeRatio_min * area1
             for col in cols:
                 area2 = compute_area(boxes[col])
-                if D[row][col] < self.maxDistance and (1 + self.areaChangeRatio) * area2 > area1 > (
-                        1 - self.areaChangeRatio) * area2:
+                if D[row][col] < self.maxDistance and max_area > area2 > min_area:
                     # 未超出设定的最大距离，计算psr
                     # 得到追踪目标的相关滤波器H
                     H = self.template_numerator[ID] / self.template_denominator[ID]
