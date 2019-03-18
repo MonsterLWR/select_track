@@ -1,3 +1,4 @@
+# coding=utf-8
 import socket
 import threading
 import time
@@ -465,3 +466,14 @@ class Tello:
         """
 
         return self.move('up', distance)
+
+    def set_control(self, horizontal_speed=0, foward_speed=0, accelerator=0, rotate=0):
+        """
+        设置遥控器的4个通道杆量
+        a: 横滚(-100~100)
+        b: 俯仰(-100~100)
+        c: 油门(-100~100)
+        d: 旋转(-100~100)
+        """
+
+        return self.send_command('rc %d %d %d %d' % (horizontal_speed, foward_speed, accelerator, rotate), False)

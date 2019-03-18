@@ -7,6 +7,7 @@ import numpy as np
 import cv2
 
 import tello
+from PID import PID
 from darknet import darknet
 from my_tracker.selected_tracker_manager import SelectedTrackerManager
 from my_tracker.utils import pop_up_box
@@ -23,8 +24,15 @@ class TelloTracker:
 
         self.frame = None
         self.init_area = None
+        self.foward_pid = PID(setPoint=1.0, sample_time=0.5, P=30, I=5, D=10)
+        self.rotate_pid = PID(setPoint=0.5, sample_time=0.5, P=50, I=8, D=15)
         self.frame_pool = Queue()
         self.stopEvent = threading.Event()
+
+        self.horizontal_speed = 0
+        self.foward_speed = 0
+        self.accelerator = 0
+        self.rotate = 0
 
         # meters
         self.distance = 0.5
@@ -38,10 +46,6 @@ class TelloTracker:
     def _get_pooled_frame(self):
         if self.frame_pool.qsize() != 0:
             return self.frame_pool.get()
-
-    # def show_frame(self, win_name):
-    #     if self.frame is not None:
-    #         cv2.imshow(win_name, self.frame)
 
     def _videoLoop(self):
         """
@@ -71,6 +75,13 @@ class TelloTracker:
         self.stopEvent.set()
         del self.tello
 
+    def _regionCheck(self, region, min=-30, max=30):
+        if region < min:
+            region = min
+        elif region > max:
+            region = max
+        return int(region)
+
     def track(self):
         # 初始要追踪的目标ID
         selected_IDs = []
@@ -99,7 +110,7 @@ class TelloTracker:
             # if we are supposed to be writing a video to disk, initialize the writer
             if self.output_video is not None and writer is None:
                 fourcc = cv2.VideoWriter_fourcc(*"MP4V")
-                writer = cv2.VideoWriter(self.output_video, fourcc, 30,
+                writer = cv2.VideoWriter(self.output_video, fourcc, 20,
                                          (width, height), True)
 
             if tracking:
@@ -115,7 +126,7 @@ class TelloTracker:
                         # filter out weak detections by requiring a minimum onfidence
                         if scores[i] > self.confidence:
                             # if the class label is not a person, ignore it
-                            if classes[i] == "person" or classes[i] == 'laptop':
+                            if classes[i] == "person":
                                 boxes.append(raw_boxes[i])
 
                     if total_track_frames == 0:
@@ -157,30 +168,47 @@ class TelloTracker:
                         box = rects.values()[0]
                         (startX, startY, endX, endY) = box
                         area = (endX - startX) * (endY - startY)
-                        cX = (startX + endX) / 2.0
-                        cY = (startY + endY) / 2.0
-                        x_ratio = cX / width
-                        y_ratio = cY / height
+
                         # print "area:%f" % area
                         # print "x_ratio:%f,y_ratio:%f" % (x_ratio, y_ratio)
-                        if x_ratio < 0.4:
-                            self.tello.rotate_ccw(self.degree)
-                        elif x_ratio > 0.6:
-                            self.tello.rotate_cw(self.degree)
-
-                        if y_ratio < 0.4:
-                            self.tello.move_up(self.distance)
-                        elif y_ratio > 0.6:
-                            self.tello.move_down(self.distance)
+                        # if x_ratio < 0.4:
+                        #     self.tello.rotate_ccw(self.degree)
+                        # elif x_ratio > 0.6:
+                        #     self.tello.rotate_cw(self.degree)
+                        #
+                        # if y_ratio < 0.4:
+                        #     self.tello.move_up(self.distance)
+                        # elif y_ratio > 0.6:
+                        #     self.tello.move_down(self.distance)
 
                         if self.init_area is None:
+                            # it's the first time to get a box, so we record it as a target for later use.
                             self.init_area = area
+                            self._pid_init_lasttime()
                         else:
-                            area_ratio = area / self.init_area
-                            if area_ratio < 0.8:
-                                self.tello.move_forward(self.distance)
-                            elif area_ratio > 1.2:
-                                self.tello.move_backward(self.distance)
+                            # using pid algorithms to calculate a proper argument to send to tello
+                            cX = (startX + endX) / 2.0
+                            cY = (startY + endY) / 2.0
+                            x_ratio = cX / width
+                            y_ratio = cY / height
+                            area_ratio = float(area) / float(self.init_area)
+
+                            cur_time = time.time()
+                            self.foward_speed = self.foward_pid.update(area_ratio, cur_time)
+                            self.rotate = self.rotate_pid.update(1 - x_ratio, cur_time)
+
+                            if self.foward_speed is not None and self.horizontal_speed is not None:
+                                self.tello.set_control(foward_speed=self._regionCheck(self.foward_speed),
+                                                       rotate=self._regionCheck(self.rotate))
+                            # if area_ratio < 0.8:
+                            #     self.tello.move_forward(self.distance)
+                            # elif area_ratio > 1.2:
+                            #     self.tello.move_backward(self.distance)
+                    else:
+                        # no tracking object, stop any moving
+                        self.tello.set_control()
+                        self._pid_clear()
+                        self._pid_init_lasttime()
 
                 # increment the total number of frames processed thus far
                 total_track_frames += 1
@@ -206,19 +234,15 @@ class TelloTracker:
                 self.tello.move_down(self.distance)
             elif key == ord("l"):
                 self.tello.land()
-            # elif key == ord("f"):
-            #     self.tello.move_forward(self.distance)
-            # elif key == ord("b"):
-            #     self.tello.move_backward(self.distance)
 
             # if key == ord("q"):
             #     break
-            # elif key == ord("t"):
+            # elif key == ord("t"):q
             #     self.tello.takeoff()
-            # elif key == ord("u"):
-            #     self.tello.move_up(0.5)
-            # elif key == ord("d"):
-            #     self.tello.move_down(0.5)
+            # # elif key == ord("u"):
+            # #     self.tello.move_up(0.5)
+            # # elif key == ord("d"):
+            # #     self.tello.move_down(0.5)
             # elif key == ord("l"):
             #     self.tello.land()
             # elif key == ord("s"):
@@ -227,6 +251,18 @@ class TelloTracker:
             #     self.tello.move_forward(0.5)
             # elif key == ord("b"):
             #     self.tello.move_backward(0.5)
+            # elif key == ord("u"):
+            #     self.foward_speed += 10
+            #     self.tello.set_control(self.horizontal_speed, self.foward_speed, self.accelerator, self.rotate)
+            # elif key == ord("j"):
+            #     self.foward_speed -= 10
+            #     self.tello.set_control(self.horizontal_speed, self.foward_speed, self.accelerator, self.rotate)
+            # elif key == ord("h"):
+            #     self.horizontal_speed -= 10
+            #     self.tello.set_control(self.horizontal_speed, self.foward_speed, self.accelerator, self.rotate)
+            # elif key == ord("k"):
+            #     self.horizontal_speed += 10
+            #     self.tello.set_control(self.horizontal_speed, self.foward_speed, self.accelerator, self.rotate)
 
         # check to see if we need to release the video writer pointer
         if writer is not None:
@@ -235,6 +271,14 @@ class TelloTracker:
         # close any open windows
         cv2.destroyAllWindows()
         self._close()
+
+    def _pid_init_lasttime(self):
+        self.foward_pid.init_last_time()
+        self.rotate_pid.init_last_time()
+
+    def _pid_clear(self):
+        self.foward_pid.clear()
+        self.rotate_pid.clear()
 
     def _sendingCommand(self):
         """
@@ -249,7 +293,7 @@ class TelloTracker:
 
 if __name__ == '__main__':
     # detect_model = darknet
-    tracker = TelloTracker(darknet, tello.Tello('', 8889))
+    tracker = TelloTracker(darknet, tello.Tello('', 8889), output_video='test.mp4')
 
     tracker.track()
     # while True:
