@@ -61,10 +61,10 @@ def _discard_border_boxes(boxes, height, width):
         endY = np.clip(endY, 0, height)
         startX = np.clip(startX, 0, width)
         endX = np.clip(endX, 0, width)
-        if startY == 0 or startX == 0 or endX == width or endY == height:
-            continue
-        else:
-            new_boxes.append((startX, startY, endX, endY))
+        # if startY == 0 or startX == 0 or endX == width or endY == height:
+        #     continue
+        # else:
+        new_boxes.append((startX, startY, endX, endY))
     return new_boxes
 
 
@@ -96,9 +96,10 @@ def pop_up_box():
     """
 
     def inputint():
-        nonlocal num
+        nonlocal nums
         try:
-            num = int(var.get().strip())
+            nums = [int(num) for num in var.get().strip().split(',')]
+            # num = int(var.get().strip())
             root.quit()
             root.destroy()
             # quit = threading.Thread(target=root.quit)
@@ -107,11 +108,12 @@ def pop_up_box():
             num = 'Not a valid integer.'
 
     def inputclear():
-        nonlocal num
+        nonlocal nums
         var.set('')
-        num = ''
+        nums = []
 
-    num = 0
+    # num = 0
+    nums = []
     root = tkinter.Tk(className='请输入追踪目标的ID')  # 弹出框框名
     root.geometry('270x60')  # 设置弹出框的大小 w x h
 
@@ -129,4 +131,4 @@ def pop_up_box():
     # 上述完成之后, 开始真正弹出弹出框
     root.mainloop()
 
-    return num
+    return nums

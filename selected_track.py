@@ -1,12 +1,10 @@
 from my_tracker.selected_tracker_manager import SelectedTrackerManager
 from imutils.video import VideoStream
 from imutils.video import FPS
-from YOLO_v2.yolo_model import YOLO_model
 from my_tracker.utils import pop_up_box
 import imutils
 import time
 import cv2
-import tensorflow as tf
 
 
 class SelectedTracker:
@@ -14,7 +12,7 @@ class SelectedTracker:
         self.detection_model = detection_model
 
     def track(self, input_vedio=None, output_vedio=None, frame_width=500, skip_frames=20, confidence=0.4,
-              verbose=False, use_CF=True):
+              verbose=False, use_CF=True, class_label='person'):
         if input_vedio is None:
             print("[INFO] starting video stream...")
             vs = VideoStream(src=0).start()
@@ -76,7 +74,7 @@ class SelectedTracker:
                 # object detection method to aid our tracker
                 if totalFrames % skip_frames == 0:
                     raw_boxes, scores, classes = self.detection_model.performDetect(frame)
-                    print(raw_boxes, scores, classes)
+                    # print(raw_boxes, scores, classes)
 
                     # loop over the detections
                     boxes = []
@@ -84,7 +82,7 @@ class SelectedTracker:
                         # filter out weak detections by requiring a minimum onfidence
                         if scores[i] > confidence:
                             # if the class label is not a person, ignore it
-                            if classes[i] == "person" or classes[i] == 'car':
+                            if classes[i] == class_label:
                                 boxes.append(raw_boxes[i])
 
                     if totalFrames == 0:
@@ -119,7 +117,7 @@ class SelectedTracker:
 
                 if totalFrames == 0:
                     cv2.imshow("Frame", frame)
-                    selected_IDs.append(pop_up_box())
+                    selected_IDs.extend(pop_up_box())
                     tm.discard_unselected_IDs(selected_IDs)
                     fps = FPS().start()
 
@@ -179,23 +177,23 @@ if __name__ == '__main__':
     input = './videos/1.mp4'
     output = './output/heihei.mp4'
 
-    if using_tiny_model:
-        from tiny_yolo3.tiny_yolo import YOLO as tiny_yolo
-
-        tiny_yolo = tiny_yolo(model_path='../tiny_yolo3/model_data/tinyYolo.h5',
-                              anchors_path='../tiny_yolo3/model_data/tiny_yolo_anchors.txt',
-                              classes_path='../tiny_yolo3/model_data/coco_classes.txt')
-        # print(tiny_yolo.detect(cv2.imread('./1.jpg')))
-        # print(tiny_yolo.detect(cv2.imread('./timg.jpg')))
-        selected_tracker = SelectedTracker(tiny_yolo)
-        selected_tracker.track(input, output, skip_frames=20, verbose=True,
-                               use_CF=True, frame_width=size)
-        tiny_yolo.close_session()
-    else:
-        with tf.Session() as sess:
-            yolo = YOLO_model(sess, '../YOLO_v2/yolo2_model/yolo2_coco.ckpt', '../YOLO_v2/yolo2_data/coco_classes.txt',
-                              input_size=(size, size))
-            selected_tracker = SelectedTracker(yolo)
-            # print(yolo.detect(cv2.imread('../YOLO_v2/yolo2_data/timg.jpg')))
-            selected_tracker.track(input, output, skip_frames=20, verbose=True,
-                                   use_CF=True, frame_width=size)
+    # if using_tiny_model:
+    #     from tiny_yolo3.tiny_yolo import YOLO as tiny_yolo
+    #
+    #     tiny_yolo = tiny_yolo(model_path='../tiny_yolo3/model_data/tinyYolo.h5',
+    #                           anchors_path='../tiny_yolo3/model_data/tiny_yolo_anchors.txt',
+    #                           classes_path='../tiny_yolo3/model_data/coco_classes.txt')
+    #     # print(tiny_yolo.detect(cv2.imread('./1.jpg')))
+    #     # print(tiny_yolo.detect(cv2.imread('./timg.jpg')))
+    #     selected_tracker = SelectedTracker(tiny_yolo)
+    #     selected_tracker.track(input, output, skip_frames=20, verbose=True,
+    #                            use_CF=True, frame_width=size)
+    #     tiny_yolo.close_session()
+    # else:
+    #     with tf.Session() as sess:
+    #         yolo = YOLO_model(sess, '../YOLO_v2/yolo2_model/yolo2_coco.ckpt', '../YOLO_v2/yolo2_data/coco_classes.txt',
+    #                           input_size=(size, size))
+    #         selected_tracker = SelectedTracker(yolo)
+    #         # print(yolo.detect(cv2.imread('../YOLO_v2/yolo2_data/timg.jpg')))
+    #         selected_tracker.track(input, output, skip_frames=20, verbose=True,
+    #                                use_CF=True, frame_width=size)

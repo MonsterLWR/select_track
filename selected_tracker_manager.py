@@ -3,7 +3,6 @@ from my_tracker.CF_helper import *
 from my_tracker.utils import *
 import numpy as np
 import cv2
-import multiprocessing
 
 
 class SelectedTrackerManager:
@@ -25,20 +24,21 @@ class SelectedTrackerManager:
         self.fft_gauss_response = np.fft.fft2(gauss_response(self.filter_size[0], self.filter_size[1]))
         # cv2.imshow('g', gauss_response(self.filter_size[0], self.filter_size[1]))
 
-        self.maxDistance = kwargs.setdefault('maxDistance', 150)
+        self.maxDistance = kwargs.setdefault('maxDistance', 100)
         self.maxDisappear = kwargs.setdefault('maxDisappear', 5)
         self.areaThreshold = kwargs.setdefault('areaThreshold', 100)
         # psr为8可能是追踪目标，也可能不是追踪目标。结合距离来判断是否为追踪目标。
         self.psrThreshold = kwargs.setdefault('psrThreshold', 8.0)
         # 用于判断追踪的是否是同一目标
-        self.updatePsr = kwargs.setdefault('updatePsr', 13.0)
+        self.updatePsr = kwargs.setdefault('updatePsr', 8.0)
         self.areaChangeRatio_max = kwargs.setdefault('areaChangeRatio_max', 3.0)
         self.areaChangeRatio_min = kwargs.setdefault('areaChangeRatio_min', 0.5)
-        self.distancePenalty = self.updatePsr - self.psrThreshold
+        self.distancePenalty = 10.0
+        self.penalty_alfa = self.distancePenalty / (self.maxDistance ** 2)
 
         # 每次追踪的目标匹配为检测到的目标时，由于框的大小不同，可能导致psr也比较小。
         # 该值用于每次追踪的目标匹配为检测到的目标时，可以无视psr的值，更新滤波器的次数。
-        self.safeUpdateCount = kwargs.setdefault('safeUpdateCount', 0)
+        self.safeUpdateCount = kwargs.setdefault('safeUpdateCount', 2)
 
         self.tracker_type = tracker_type
 
@@ -54,8 +54,6 @@ class SelectedTrackerManager:
             "mosse": cv2.TrackerMOSSE_create
         }
         self.new_tracker = OPENCV_OBJECT_TRACKERS[tracker_type]
-
-        self.pool = multiprocessing.Pool()
 
     def __register(self, frame, box):
         """通过frame,box,新建并初始化一个tracker"""
@@ -228,7 +226,7 @@ class SelectedTrackerManager:
                     psr_table[row][col] = psr
 
                     # 加入距离的惩罚项
-                    penalty = D[row][col] / self.maxDistance * self.distancePenalty
+                    penalty = D[row][col] ** 2 * self.penalty_alfa
                     psr_with_penalty[row][col] = psr - penalty
 
                     if self.debug:
@@ -305,7 +303,7 @@ class SelectedTrackerManager:
                         self.counts[ID] -= 1
 
                         if self.debug:
-                            print('skip psr')
+                            print('psr: skip psr')
             else:
                 # 追踪失败
                 self.tracked[ID] = False
@@ -326,15 +324,19 @@ class SelectedTrackerManager:
         print('boxes:{}'.format(self.boxes))
         print('disappear:{}'.format(self.disappear))
 
-    def __update_template(self, ID, gray_frame, rate=0.125):
+    def __update_template(self, ID, gray_frame, rate=0.125, new_template=False):
         # 更新滤波器模板
         startX, startY, endX, endY = self.boxes[ID]
         hi = gray_frame[startY:endY, startX:endX]
         hi = cv2.resize(hi, self.filter_size)
         numerator, denominator = correlation_filter(hi, self.fft_gauss_response)
 
-        self.template_numerator[ID] = rate * numerator + (1 - rate) * self.template_numerator[ID]
-        self.template_denominator[ID] = rate * denominator + (1 - rate) * self.template_denominator[ID]
+        if new_template:
+            self.template_numerator[ID] = numerator
+            self.template_denominator[ID] = denominator
+        else:
+            self.template_numerator[ID] = rate * numerator + (1 - rate) * self.template_numerator[ID]
+            self.template_denominator[ID] = rate * denominator + (1 - rate) * self.template_denominator[ID]
 
     def __set_templates(self, gray_frame):
         # 对要追踪的id
